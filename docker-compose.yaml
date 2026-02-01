@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  db:
+    build:
+      context: ./db
+      dockerfile: Dockerfile
+    container_name: postgres_master
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_DATABASE}
+    ports:
+      - "${DB_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bot_network
+    restart: unless-stopped
+
+  db_repl:
+    build:
+      context: ./db_repl
+      dockerfile: Dockerfile
+    container_name: postgres_replica
+    environment:
+      POSTGRES_USER: ${DB_REPL_USER}
+      POSTGRES_PASSWORD: ${DB_REPL_PASSWORD}
+      PGUSER: ${DB_REPL_USER}
+      PGPASSWORD: ${DB_REPL_PASSWORD}
+      MASTER_HOST: db
+      MASTER_PORT: 5432
+    ports:
+      - "${DB_REPL_PORT}:5432"
+    depends_on:
+      - db
+    networks:
+      - bot_network
+    restart: unless-stopped
+
+  bot:
+    build:
+      context: ./bot
+      dockerfile: Dockerfile
+    container_name: telegram_bot
+    environment:
+      TOKEN: ${TOKEN}
+      RM_HOST: ${RM_HOST}
+      RM_PORT: ${RM_PORT}
+      RM_USER: ${RM_USER}
+      RM_PASSWORD: ${RM_PASSWORD}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE}
+      DB_REPL_USER: ${DB_REPL_USER}
+      DB_REPL_PASSWORD: ${DB_REPL_PASSWORD}
+      DB_REPL_HOST: db_repl
+      DB_REPL_PORT: 5432
+    depends_on:
+      - db
+      - db_repl
+    networks:
+      - bot_network
+    restart: unless-stopped
+    volumes:
+      - ./bot/bot_logfile.txt:/app/bot_logfile.txt
+
+volumes:
+  postgres_data:
+
+networks:
+  bot_network:
+    driver: bridge
