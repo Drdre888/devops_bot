@@ -405,12 +405,12 @@ def get_phone_numbers(update: Update, context):
 def get_repl_logs(update: Update, context):
     logger.info("Command: /get_repl_logs")
     
-    result = execute_ssh_command('sudo docker exec postgres_replica bash -c "cat /var/lib/postgresql/data/log/postgresql-*.log"')
+    result = execute_ssh_command('docker exec postgres_replica bash -c "cat /var/lib/postgresql/data/log/postgresql-*.log"')
     
     if not result or result == "Нет данных":
         result = "Логи репликации не найдены."
         logger.warning("Replication logs not found")
-    
+
     chunk_size = 3500
     if len(result) > chunk_size:
         parts_sent = 0
