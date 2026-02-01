@@ -404,25 +404,27 @@ def get_phone_numbers(update: Update, context):
 # Получить логи репликации
 def get_repl_logs(update: Update, context):
     logger.info("Command: /get_repl_logs")
-    try:
-        import subprocess
-
-        cmd = [
-            'docker', 'exec', 'postgres_replica',
-            'bash', '-c', "cat /var/lib/postgresql/data/log/postgresql-*.log | grep -i 'replicat\|streaming\|wal\|recovery\|standby' | tail -20"
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
-        if result.returncode == 0 and result.stdout.strip():
-            response = result.stdout.strip()
-        else:
-            response = "Логи репликации не найдены"
-        
-        update.message.reply_text(response[:4000])
-        
-    except Exception as e:
-        update.message.reply_text(f"Ошибка: {str(e)[:100]}")
+    
+    result = execute_ssh_command('sudo docker exec postgres_replica bash -c "cat /var/lib/postgresql/data/log/postgresql-*.log"')
+    
+    if not result or result == "Нет данных":
+        result = "Логи репликации не найдены."
+        logger.warning("Replication logs not found")
+    
+    chunk_size = 3500
+    if len(result) > chunk_size:
+        parts_sent = 0
+        for i in range(0, len(result), chunk_size):
+            chunk = result[i:i + chunk_size]
+            parts_sent += 1
+            if i == 0:
+                update.message.reply_text(f"Логи репликации (часть {parts_sent}):\n\n{chunk}")
+            else:
+                update.message.reply_text(f"Часть {parts_sent}:\n\n{chunk}")
+        logger.info(f"Replication logs sent in {parts_sent} parts")
+    else:
+        update.message.reply_text(result[:4000])
+        logger.info("Replication logs sent to user")
 
 
 # Мониторинг Linux системы
