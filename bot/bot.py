@@ -404,19 +404,25 @@ def get_phone_numbers(update: Update, context):
 # Получить логи репликации
 def get_repl_logs(update: Update, context):
     logger.info("Command: /get_repl_logs")
-
-    result = execute_ssh_command('grep -i "replication" /var/log/postgresql/*.log | tail -20 2>/dev/null')
-
-    if not result or result == "Нет данных" or 'No such file' in result:
-        result = execute_ssh_command(
-            'grep -i "replication\\|replicat\\|standby" /var/lib/postgresql/data/log/*.log | tail -20 2>/dev/null')
-
-    if not result or result == "Нет данных":
-        result = "Логи репликации не найдены."
-        logger.warning("Replication logs not found")
-
-    update.message.reply_text(result[:4000])
-    logger.info("Replication logs sent to user")
+    try:
+        import subprocess
+        
+        cmd = [
+            'sudo', 'docker', 'exec', 'postgres_replica',
+            'bash', '-c', "cat /var/lib/postgresql/data/log/postgresql-*.log | grep -i 'replicat\|streaming\|wal\|recovery\|standby' | tail -20"
+        ]
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0 and result.stdout.strip():
+            response = result.stdout.strip()
+        else:
+            response = "Логи репликации не найдены"
+        
+        update.message.reply_text(response[:4000])
+        
+    except Exception as e:
+        update.message.reply_text(f"Ошибка: {str(e)[:100]}")
 
 
 # Мониторинг Linux системы
