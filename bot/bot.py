@@ -406,9 +406,9 @@ def get_repl_logs(update: Update, context):
     logger.info("Command: /get_repl_logs")
     try:
         import subprocess
-        
+
         cmd = [
-            'sudo', 'docker', 'exec', 'postgres_replica',
+            'docker', 'exec', 'postgres_replica',
             'bash', '-c', "cat /var/lib/postgresql/data/log/postgresql-*.log | grep -i 'replicat\|streaming\|wal\|recovery\|standby' | tail -20"
         ]
         
