@@ -1,4 +1,4 @@
-version: '3.8'
+version: '3.3'
 
 services:
   db:
@@ -64,8 +64,6 @@ services:
     networks:
       - bot_network
     restart: unless-stopped
-    volumes:
-      - ./bot/bot_logfile.txt:/app/bot_logfile.txt
 
 volumes:
   postgres_data:
