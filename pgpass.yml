@@ -1,0 +1,29 @@
+# Database settings
+db_name: "telegram_bot_db"
+db_user: "telegram_user"
+db_password: "YOUR_DATABASE_PASSWORD_HERE"
+
+# Replication settings
+replication_user: "replicator"
+replication_password: "YOUR_REPLICATION_PASSWORD_HERE"
+
+# PostgreSQL version
+postgresql_version: "15"
+
+# IP addresses - MUST REPLACE!
+master_ip: "YOUR_MASTER_SERVER_IP_HERE"
+slave_ip: "YOUR_SLAVE_SERVER_IP_HERE"
+bot_ip: "YOUR_BOT_SERVER_IP_HERE"
+
+# Bot settings
+bot_repo: "YOUR_GITHUB_REPO_URL_HERE"
+bot_branch: "main"
+bot_dir: "/opt/telegram-bot"
+venv_dir: "/opt/telegram-bot/venv"
+
+# Telegram bot token - GET FROM @BotFather!
+TOKEN: "YOUR_TELEGRAM_BOT_TOKEN_HERE"
+
+# Remote management credentials
+RM_USER: "YOUR_REMOTE_USERNAME_HERE"
+RM_PASSWORD: "YOUR_REMOTE_PASSWORD_HERE"

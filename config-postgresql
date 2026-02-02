@@ -1,0 +1,26 @@
+listen_addresses = '*'
+port = 5432
+
+shared_buffers = 128MB
+work_mem = 4MB
+maintenance_work_mem = 64MB
+
+wal_level = replica
+max_wal_senders = 10
+wal_keep_size = 1GB
+
+{% if postgresql_role == 'slave' %}
+hot_standby = on
+primary_conninfo = 'host={{ hostvars['master_db'].ansible_host }} port=5432 user={{ replication_user }} password={{ replication_password }}'
+{% else %}
+max_replication_slots = 10
+synchronous_commit = off
+{% endif %}
+
+logging_collector = on
+log_directory = '/var/log/postgresql'
+log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+log_statement = 'none'
+log_duration = off
+log_connections = on
+log_disconnections = on

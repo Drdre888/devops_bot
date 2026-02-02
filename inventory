@@ -1,0 +1,16 @@
+# PostgreSQL Master Server
+[postgresql_master]
+dbmaster ansible_host=YOUR_MASTER_IP_HERE ansible_user=YOUR_SSH_USERNAME_HERE ansible_ssh_pass=YOUR_SSH_PASSWORD_HERE ansible_become_pass=YOUR_SUDO_PASSWORD_HERE
+
+# PostgreSQL Slave Server
+[postgresql_slave]
+dbslave ansible_host=YOUR_SLAVE_IP_HERE ansible_user=YOUR_SSH_USERNAME_HERE ansible_ssh_pass=YOUR_SSH_PASSWORD_HERE ansible_become_pass=YOUR_SUDO_PASSWORD_HERE
+
+# Telegram Bot Server
+[telegram_bot]
+botserver ansible_host=YOUR_BOT_IP_HERE ansible_user=YOUR_SSH_USERNAME_HERE ansible_ssh_pass=YOUR_SSH_PASSWORD_HERE ansible_become_pass=YOUR_SUDO_PASSWORD_HERE
+
+# Global variables for all hosts
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'

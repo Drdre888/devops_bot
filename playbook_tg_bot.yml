@@ -1,0 +1,337 @@
+---
+- name: Load all variables from pgpass.yml
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Load pgpass.yml variables
+      include_vars:
+        file: pgpass.yml
+
+- name: Fix apt locks and issues on all hosts
+  hosts: all
+  become: yes
+  tasks:
+    - name: Stop unattended upgrades
+      systemd:
+        name: unattended-upgrades
+        state: stopped
+      ignore_errors: yes
+
+    - name: Kill any apt/dpkg processes
+      shell: |
+        pkill -9 apt || true
+        pkill -9 apt-get || true
+        pkill -9 dpkg || true
+      ignore_errors: yes
+
+    - name: Remove lock files
+      file:
+        path: "{{ item }}"
+        state: absent
+      with_items:
+        - /var/lib/dpkg/lock-frontend
+        - /var/lib/dpkg/lock
+        - /var/lib/apt/lists/lock
+        - /var/cache/apt/archives/lock
+
+    - name: Fix interrupted dpkg
+      shell: |
+        dpkg --configure -a || true
+        apt-get install -f -y || true
+      ignore_errors: yes
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      ignore_errors: yes
+
+- name: Установка PostgreSQL Master
+  hosts: postgresql_master
+  become: yes
+  vars_files:
+    - pgpass.yml
+  tasks:
+    - name: Установить PostgreSQL
+      apt:
+        name: postgresql
+        state: present
+
+    - name: Определить фактическую версию PostgreSQL
+      shell: |
+        ls /etc/postgresql/ | head -1
+      register: actual_postgres_version
+      changed_when: false
+
+    - name: Настроить postgresql.conf для репликации
+      lineinfile:
+        path: /etc/postgresql/{{ actual_postgres_version.stdout }}/main/postgresql.conf
+        regexp: '^#?listen_addresses\s*='
+        line: "listen_addresses = '*'"
+        backup: yes
+      notify: restart postgresql
+
+    - name: Включить репликацию
+      lineinfile:
+        path: /etc/postgresql/{{ actual_postgres_version.stdout }}/main/postgresql.conf
+        regexp: '^#?wal_level\s*='
+        line: "wal_level = replica"
+        backup: yes
+      notify: restart postgresql
+
+    - name: Добавить настройки репликации в pg_hba.conf
+      blockinfile:
+        path: /etc/postgresql/{{ actual_postgres_version.stdout }}/main/pg_hba.conf
+        block: |
+          host    replication     {{ replication_user }} {{ slave_ip }}/32        md5
+          host    all             {{ db_user }}          {{ bot_ip }}/32          md5
+          host    all             all                    192.168.0.0/24           md5
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - REPLICATION"
+      notify: restart postgresql
+
+    - name: Перезапустить PostgreSQL
+      service:
+        name: postgresql
+        state: restarted
+        enabled: yes
+
+    - name: Создать пользователя репликации
+      become_user: postgres
+      shell: |
+        psql -c "CREATE USER {{ replication_user }} WITH REPLICATION ENCRYPTED PASSWORD '{{ replication_password }}';"
+
+    - name: Создать базу данных для бота
+      become_user: postgres
+      shell: |
+        psql -c "CREATE DATABASE {{ db_name }};"
+
+    - name: Создать пользователя бота
+      become_user: postgres
+      shell: |
+        psql -c "CREATE USER {{ db_user }} WITH ENCRYPTED PASSWORD '{{ db_password }}';"
+        psql -c "GRANT ALL PRIVILEGES ON DATABASE {{ db_name }} TO {{ db_user }};"
+
+    - name: Создать таблицы в базе данных
+      become_user: postgres
+      shell: |
+        psql -d {{ db_name }} << EOF
+        CREATE TABLE IF NOT EXISTS emails (
+            id SERIAL PRIMARY KEY,
+            email VARCHAR(255) NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS phone_numbers (
+            id SERIAL PRIMARY KEY,
+            phone_number VARCHAR(20) NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        INSERT INTO emails (email) VALUES 
+            ('test@example.com'),
+            ('admin@company.org')
+        ON CONFLICT (email) DO NOTHING;
+
+        INSERT INTO phone_numbers (phone_number) VALUES 
+            ('89161234567'),
+            ('+79267654321')
+        ON CONFLICT (phone_number) DO NOTHING;
+
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {{ db_user }};
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {{ db_user }};
+        EOF
+
+  handlers:
+    - name: restart postgresql
+      service:
+        name: postgresql
+        state: restarted
+
+- name: Fix and Setup PostgreSQL Slave
+  hosts: postgresql_slave
+  become: yes
+  vars_files:
+    - pgpass.yml
+  tasks:
+    - name: Удалить сломанный CD-ROM репозиторий
+      lineinfile:
+        path: /etc/apt/sources.list
+        regexp: '^deb cdrom:'
+        state: absent
+        backup: yes
+
+    - name: Обновить apt кэш
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+        force_apt_get: yes
+
+    - name: Установить PostgreSQL
+      apt:
+        name: postgresql
+        state: present
+
+    - name: Определить фактическую версию PostgreSQL
+      shell: |
+        ls /etc/postgresql/ | head -1
+      register: actual_postgres_version
+      changed_when: false
+
+    - name: Остановить PostgreSQL
+      service:
+        name: postgresql
+        state: stopped
+
+    - name: Удалить существующие данные
+      shell: |
+        rm -rf /var/lib/postgresql/{{ actual_postgres_version.stdout }}/main/*
+      become_user: postgres
+
+    - name: Выполнить базовое копирование с мастера
+      become_user: postgres
+      shell: |
+        PGPASSWORD={{ replication_password }} pg_basebackup -h {{ master_ip }} \
+          -D /var/lib/postgresql/{{ actual_postgres_version.stdout }}/main \
+          -U {{ replication_user }} \
+          -v \
+          -P \
+          -R \
+          -X stream
+      environment:
+        PGPASSWORD: "{{ replication_password }}"
+
+    - name: Создать standby.signal
+      become_user: postgres
+      copy:
+        dest: /var/lib/postgresql/{{ actual_postgres_version.stdout }}/main/standby.signal
+        content: ""
+
+    - name: Настроить подключение к мастеру
+      lineinfile:
+        path: /var/lib/postgresql/{{ actual_postgres_version.stdout }}/main/postgresql.auto.conf
+        line: "primary_conninfo = 'host={{ master_ip }} port=5432 user={{ replication_user }} password={{ replication_password }}'"
+        create: yes
+
+    - name: Запустить PostgreSQL как реплику
+      service:
+        name: postgresql
+        state: started
+        enabled: yes
+
+- name: Настройка Telegram бота
+  hosts: telegram_bot
+  become: yes
+  vars_files:
+    - pgpass.yml
+  tasks:
+    - name: Установить системные зависимости
+      apt:
+        name:
+          - python3
+          - python3-pip
+          - python3-venv
+          - git
+          - postgresql-client
+          - libpq-dev
+        state: present
+
+    - name: Создать пользователя для бота
+      user:
+        name: telegrambot
+        shell: /bin/bash
+        create_home: yes
+        system: yes
+
+    - name: Создать директорию для бота
+      file:
+        path: "{{ bot_dir }}"
+        state: directory
+        owner: telegrambot
+        group: telegrambot
+        mode: '0755'
+
+    - name: Скачать код бота с GitHub (ветка Ansible)
+      git:
+        repo: "{{ bot_repo }}"
+        dest: "{{ bot_dir }}"
+        version: "{{ bot_branch }}"
+        force: yes
+      become_user: telegrambot
+
+    - name: Copy bot.py from subdirectory to main directory
+      copy:
+        src: "{{ bot_dir }}/bot/bot.py"
+        dest: "{{ bot_dir }}/bot.py"
+        remote_src: yes
+        owner: telegrambot
+        group: telegrambot
+
+    - name: Copy requirements.txt from subdirectory to main directory
+      copy:
+        src: "{{ bot_dir }}/bot/requirements.txt"
+        dest: "{{ bot_dir }}/requirements.txt"
+        remote_src: yes
+        owner: telegrambot
+        group: telegrambot
+
+    - name: Создать виртуальное окружение
+      command:
+        cmd: python3 -m venv {{ venv_dir }}
+        creates: "{{ venv_dir }}/bin/activate"
+      become_user: telegrambot
+
+    - name: Установить зависимости Python
+      pip:
+        requirements: "{{ bot_dir }}/requirements.txt"
+        virtualenv: "{{ venv_dir }}"
+        virtualenv_python: python3
+      become_user: telegrambot
+
+    - name: Создать .env файл для бота
+      copy:
+        dest: "{{ bot_dir }}/.env"
+        content: |
+          TOKEN={{ TOKEN }}
+          DB_USER={{ db_user }}
+          DB_PASSWORD={{ db_password }}
+          DB_HOST={{ master_ip }}
+          DB_PORT=5432
+          DB_DATABASE={{ db_name }}
+          RM_HOST={{ inventory_hostname }}
+          RM_PORT=22
+          RM_USER={{ RM_USER }}
+          RM_PASSWORD={{ RM_PASSWORD }}
+        owner: telegrambot
+        group: telegrambot
+        mode: '0600'
+
+    - name: Создать systemd службу для бота
+      copy:
+        dest: /etc/systemd/system/telegram-bot.service
+        content: |
+          [Unit]
+          Description=Telegram Bot Service
+          After=network.target
+          Wants=network.target
+
+          [Service]
+          Type=simple
+          User=telegrambot
+          Group=telegrambot
+          WorkingDirectory={{ bot_dir }}
+          Environment="PATH={{ venv_dir }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          ExecStart={{ venv_dir }}/bin/python {{ bot_dir }}/bot.py
+          Restart=always
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Включить и запустить службу бота
+      systemd:
+        name: telegram-bot
+        state: started
+        enabled: yes
+        daemon_reload: yes
