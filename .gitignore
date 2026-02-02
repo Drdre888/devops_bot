@@ -1,4 +1,0 @@
-.env
-bot_logfile.txt
-postgres_data/
-.gitignore 
