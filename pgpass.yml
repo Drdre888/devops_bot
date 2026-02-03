@@ -1,11 +1,11 @@
 # Database settings
 db_name: "telegram_bot_db"
 db_user: "telegram_user"
-db_password: "YOUR_DATABASE_PASSWORD_HERE"
+db_password: "123"
 
 # Replication settings
 replication_user: "replicator"
-replication_password: "YOUR_REPLICATION_PASSWORD_HERE"
+replication_password: "123"
 
 # PostgreSQL version
 postgresql_version: "15"
@@ -16,8 +16,8 @@ slave_ip: "YOUR_SLAVE_SERVER_IP_HERE"
 bot_ip: "YOUR_BOT_SERVER_IP_HERE"
 
 # Bot settings
-bot_repo: "YOUR_GITHUB_REPO_URL_HERE"
-bot_branch: "main"
+bot_repo: "https://github.com/Drdre888/devops_bot.git"
+bot_branch: "Ansible"
 bot_dir: "/opt/telegram-bot"
 venv_dir: "/opt/telegram-bot/venv"
 
